@@ -1,0 +1,6 @@
+*.in
+.*.swp
+.*.swo
+.vscode
+*/target
+__pycache__
