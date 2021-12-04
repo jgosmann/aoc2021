@@ -2,5 +2,7 @@
 .*.swp
 .*.swo
 .vscode
-*/target
+**/target
 __pycache__
+input
+*.input
