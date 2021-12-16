@@ -1,0 +1,13 @@
+[package]
+authors = ["Jan Gosmann <jan.gosmann@tngtech.com>"]
+edition = "2018"
+name = "day16-rust"
+version = "0.1.0"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+hex = "0.4.3"
+
+[dev-dependencies]
+rstest = "0.12.0"
