@@ -6,13 +6,30 @@ use std::iter::FromIterator;
 
 type Pos = (i64, i64, i64);
 
+fn dist(a: &Pos, b: &Pos) -> u64 {
+    (a.0 - b.0).pow(2) as u64 + (a.1 - b.1).pow(2) as u64 + (a.2 - b.2).pow(2) as u64
+}
+
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Scanner {
     beacons: HashSet<Pos>,
+    dists: HashSet<u64>,
     scanner: Pos,
 }
 
 impl Scanner {
+    fn new(beacons: &[Pos]) -> Self {
+        Self {
+            beacons: HashSet::from_iter(beacons.iter().cloned()),
+            dists: beacons
+                .iter()
+                .enumerate()
+                .flat_map(|(i, a)| beacons[i + 1..].iter().map(move |b| dist(a, b)))
+                .collect(),
+            scanner: (0, 0, 0),
+        }
+    }
+
     fn rotate_around_x(&self) -> Self {
         Self {
             beacons: self
@@ -26,6 +43,7 @@ impl Scanner {
                     )
                 })
                 .collect(),
+            dists: self.dists.clone(),
             scanner: self.scanner,
         }
     }
@@ -43,6 +61,7 @@ impl Scanner {
                     )
                 })
                 .collect(),
+            dists: self.dists.clone(),
             scanner: self.scanner,
         }
     }
@@ -60,6 +79,7 @@ impl Scanner {
                     )
                 })
                 .collect(),
+            dists: self.dists.clone(),
             scanner: self.scanner,
         }
     }
@@ -71,6 +91,7 @@ impl Scanner {
                 .iter()
                 .map(|p| (p.0 + delta.0, p.1 + delta.1, p.2 + delta.2))
                 .collect(),
+            dists: self.dists.clone(),
             scanner: (
                 self.scanner.0 + delta.0,
                 self.scanner.1 + delta.1,
@@ -119,6 +140,7 @@ impl Iterator for ScannerOrientationsIterator {
 #[derive(Clone, Debug, PartialEq, Eq)]
 struct Map {
     beacons: HashSet<Pos>,
+    dists: HashSet<u64>,
     scanners: HashSet<Pos>,
 }
 
@@ -126,13 +148,29 @@ impl Map {
     fn new() -> Self {
         Self {
             beacons: HashSet::new(),
+            dists: HashSet::new(),
             scanners: HashSet::new(),
         }
     }
 
     fn insert(&mut self, scanner: &Scanner) {
         self.beacons.extend(scanner.beacons.iter());
+        self.dists.extend(
+            self.beacons
+                .iter()
+                .flat_map(|a| scanner.beacons.iter().map(move |b| dist(a, b)))
+                .filter(|&d| d != 0),
+        );
         self.scanners.insert(scanner.scanner);
+    }
+
+    fn might_be_aligned(&self, scanner: &Scanner) -> bool {
+        scanner
+            .dists
+            .iter()
+            .filter(|d| self.dists.contains(d))
+            .count()
+            >= 12
     }
 
     fn is_aligned(&self, scanner: &Scanner) -> bool {
@@ -145,18 +183,20 @@ impl Map {
     }
 
     fn try_aligned_insert(&mut self, scanner: &Scanner) -> bool {
-        for scanner in ScannerOrientationsIterator::new(scanner.clone()) {
-            let reference_beacon = scanner.beacons.iter().next().unwrap();
-            for beacon in self.beacons.iter() {
-                let delta = (
-                    beacon.0 - reference_beacon.0,
-                    beacon.1 - reference_beacon.1,
-                    beacon.2 - reference_beacon.2,
-                );
-                let translated_scanner = scanner.translate(delta);
-                if self.is_aligned(&translated_scanner) {
-                    self.insert(&translated_scanner);
-                    return true;
+        if self.might_be_aligned(&scanner) {
+            for scanner in ScannerOrientationsIterator::new(scanner.clone()) {
+                let reference_beacon = scanner.beacons.iter().next().unwrap();
+                for beacon in self.beacons.iter() {
+                    let delta = (
+                        beacon.0 - reference_beacon.0,
+                        beacon.1 - reference_beacon.1,
+                        beacon.2 - reference_beacon.2,
+                    );
+                    let translated_scanner = scanner.translate(delta);
+                    if self.is_aligned(&translated_scanner) {
+                        self.insert(&translated_scanner);
+                        return true;
+                    }
                 }
             }
         }
@@ -216,7 +256,7 @@ fn parse_scanner<R: BufRead>(input: &mut R) -> Result<Scanner, Box<dyn Error>> {
     let is_boundary = |line: &Result<String, io::Error>| {
         line.as_ref().map_or(false, |line| line.trim().is_empty())
     };
-    let beacons: HashSet<Pos> = input
+    let beacons: Vec<Pos> = input
         .lines()
         .take_while(|line| !is_boundary(line))
         .filter_map(|line| match line {
@@ -230,10 +270,7 @@ fn parse_scanner<R: BufRead>(input: &mut R) -> Result<Scanner, Box<dyn Error>> {
             Err(err) => Some(Err(Box::new(err))),
         })
         .collect::<Result<_, Box<dyn Error>>>()?;
-    Ok(Scanner {
-        beacons,
-        scanner: (0, 0, 0),
-    })
+    Ok(Scanner::new(&beacons))
 }
 
 fn parse_input<R: BufRead>(input: &mut R) -> Result<Vec<Scanner>, Box<dyn Error>> {
@@ -281,128 +318,71 @@ mod tests {
         assert_eq!(
             parse_input(&mut input).unwrap(),
             vec![
-                Scanner {
-                    beacons: HashSet::from_iter([(0, 2, 0), (4, 1, 1), (3, 3, 2)].iter().cloned()),
-                    scanner: (0, 0, 0)
-                },
-                Scanner {
-                    beacons: HashSet::from_iter(
-                        [(-1, -1, 3), (-5, 0, 4), (-2, 1, 5)].iter().cloned()
-                    ),
-                    scanner: (0, 0, 0)
-                }
+                Scanner::new(&[(0, 2, 0), (4, 1, 1), (3, 3, 2)]),
+                Scanner::new(&[(-1, -1, 3), (-5, 0, 4), (-2, 1, 5)]),
             ]
         );
     }
 
     #[test]
     fn test_orientations_iterator() {
-        let scanner = Scanner {
-            beacons: HashSet::from_iter(
-                [
-                    (-1, -1, 1),
-                    (-2, -2, 2),
-                    (-3, -3, 3),
-                    (-2, -3, 1),
-                    (5, 6, -4),
-                    (8, 0, 7),
-                ]
-                .iter()
-                .cloned(),
-            ),
-            scanner: (0, 0, 0),
-        };
+        let scanner = Scanner::new(&[
+            (-1, -1, 1),
+            (-2, -2, 2),
+            (-3, -3, 3),
+            (-2, -3, 1),
+            (5, 6, -4),
+            (8, 0, 7),
+        ]);
         let all_orientations: Vec<Scanner> = ScannerOrientationsIterator::new(scanner).collect();
-        assert!(all_orientations.contains(&Scanner {
-            beacons: HashSet::from_iter(
-                [
-                    (1, -1, 1),
-                    (2, -2, 2),
-                    (3, -3, 3),
-                    (2, -1, 3),
-                    (-5, 4, -6),
-                    (-8, -7, 0)
-                ]
-                .iter()
-                .cloned()
-            ),
-            scanner: (0, 0, 0)
-        }));
-        assert!(all_orientations.contains(&Scanner {
-            beacons: HashSet::from_iter(
-                [
-                    (-1, -1, -1),
-                    (-2, -2, -2),
-                    (-3, -3, -3),
-                    (-1, -3, -2),
-                    (4, 6, 5),
-                    (-7, 0, 8)
-                ]
-                .iter()
-                .cloned()
-            ),
-            scanner: (0, 0, 0)
-        }));
-        assert!(all_orientations.contains(&Scanner {
-            beacons: HashSet::from_iter(
-                [
-                    (1, 1, -1),
-                    (2, 2, -2),
-                    (3, 3, -3),
-                    (1, 3, -2),
-                    (-4, -6, 5),
-                    (7, 0, 8)
-                ]
-                .iter()
-                .cloned()
-            ),
-            scanner: (0, 0, 0)
-        }));
-        assert!(all_orientations.contains(&Scanner {
-            beacons: HashSet::from_iter(
-                [
-                    (1, 1, 1),
-                    (2, 2, 2),
-                    (3, 3, 3),
-                    (3, 1, 2),
-                    (-6, -4, -5),
-                    (0, 7, -8)
-                ]
-                .iter()
-                .cloned()
-            ),
-            scanner: (0, 0, 0)
-        }));
-        assert!(all_orientations.contains(&Scanner {
-            beacons: HashSet::from_iter(
-                [
-                    (-1, -1, 1),
-                    (-2, -2, 2),
-                    (-3, -3, 3),
-                    (-2, -3, 1),
-                    (5, 6, -4),
-                    (8, 0, 7)
-                ]
-                .iter()
-                .cloned()
-            ),
-            scanner: (0, 0, 0)
-        }));
-        assert!(all_orientations.contains(&Scanner {
-            beacons: HashSet::from_iter(
-                [
-                    (-1, -1, 1),
-                    (-2, -2, 2),
-                    (-3, -3, 3),
-                    (-2, -3, 1),
-                    (5, 6, -4),
-                    (8, 0, 7)
-                ]
-                .iter()
-                .cloned()
-            ),
-            scanner: (0, 0, 0)
-        }));
+        assert!(all_orientations.contains(&Scanner::new(&[
+            (1, -1, 1),
+            (2, -2, 2),
+            (3, -3, 3),
+            (2, -1, 3),
+            (-5, 4, -6),
+            (-8, -7, 0)
+        ])));
+        assert!(all_orientations.contains(&Scanner::new(&[
+            (-1, -1, -1),
+            (-2, -2, -2),
+            (-3, -3, -3),
+            (-1, -3, -2),
+            (4, 6, 5),
+            (-7, 0, 8)
+        ])));
+        assert!(all_orientations.contains(&Scanner::new(&[
+            (1, 1, -1),
+            (2, 2, -2),
+            (3, 3, -3),
+            (1, 3, -2),
+            (-4, -6, 5),
+            (7, 0, 8)
+        ])));
+        assert!(all_orientations.contains(&Scanner::new(&[
+            (1, 1, 1),
+            (2, 2, 2),
+            (3, 3, 3),
+            (3, 1, 2),
+            (-6, -4, -5),
+            (0, 7, -8)
+        ])));
+        assert!(all_orientations.contains(&Scanner::new(&[
+            (-1, -1, 1),
+            (-2, -2, 2),
+            (-3, -3, 3),
+            (-2, -3, 1),
+            (5, 6, -4),
+            (8, 0, 7)
+        ])));
+        assert!(all_orientations.contains(&Scanner::new(&[
+            (-1, -1, 1),
+            (-2, -2, 2),
+            (-3, -3, 3),
+            (-2, -3, 1),
+            (5, 6, -4),
+            (8, 0, 7)
+        ])));
     }
 
     #[test]
@@ -411,105 +391,106 @@ mod tests {
         let scanners = parse_input(&mut input).unwrap();
         let map = build_map(&scanners);
         assert_eq!(
-            map,
-            Map {
-                beacons: HashSet::from_iter(
-                    [
-                        (-892, 524, 684),
-                        (-876, 649, 763),
-                        (-838, 591, 734),
-                        (-789, 900, -551),
-                        (-739, -1745, 668),
-                        (-706, -3180, -659),
-                        (-697, -3072, -689),
-                        (-689, 845, -530),
-                        (-687, -1600, 576),
-                        (-661, -816, -575),
-                        (-654, -3158, -753),
-                        (-635, -1737, 486),
-                        (-631, -672, 1502),
-                        (-624, -1620, 1868),
-                        (-620, -3212, 371),
-                        (-618, -824, -621),
-                        (-612, -1695, 1788),
-                        (-601, -1648, -643),
-                        (-584, 868, -557),
-                        (-537, -823, -458),
-                        (-532, -1715, 1894),
-                        (-518, -1681, -600),
-                        (-499, -1607, -770),
-                        (-485, -357, 347),
-                        (-470, -3283, 303),
-                        (-456, -621, 1527),
-                        (-447, -329, 318),
-                        (-430, -3130, 366),
-                        (-413, -627, 1469),
-                        (-345, -311, 381),
-                        (-36, -1284, 1171),
-                        (-27, -1108, -65),
-                        (7, -33, -71),
-                        (12, -2351, -103),
-                        (26, -1119, 1091),
-                        (346, -2985, 342),
-                        (366, -3059, 397),
-                        (377, -2827, 367),
-                        (390, -675, -793),
-                        (396, -1931, -563),
-                        (404, -588, -901),
-                        (408, -1815, 803),
-                        (423, -701, 434),
-                        (432, -2009, 850),
-                        (443, 580, 662),
-                        (455, 729, 728),
-                        (456, -540, 1869),
-                        (459, -707, 401),
-                        (465, -695, 1988),
-                        (474, 580, 667),
-                        (496, -1584, 1900),
-                        (497, -1838, -617),
-                        (527, -524, 1933),
-                        (528, -643, 409),
-                        (534, -1912, 768),
-                        (544, -627, -890),
-                        (553, 345, -567),
-                        (564, 392, -477),
-                        (568, -2007, -577),
-                        (605, -1665, 1952),
-                        (612, -1593, 1893),
-                        (630, 319, -379),
-                        (686, -3108, -505),
-                        (776, -3184, -501),
-                        (846, -3110, -434),
-                        (1135, -1161, 1235),
-                        (1243, -1093, 1063),
-                        (1660, -552, 429),
-                        (1693, -557, 386),
-                        (1735, -437, 1738),
-                        (1749, -1800, 1813),
-                        (1772, -405, 1572),
-                        (1776, -675, 371),
-                        (1779, -442, 1789),
-                        (1780, -1548, 337),
-                        (1786, -1538, 337),
-                        (1847, -1591, 415),
-                        (1889, -1729, 1762),
-                        (1994, -1805, 1792),
-                    ]
-                    .iter()
-                    .cloned()
-                ),
-                scanners: HashSet::from_iter(
-                    [
-                        (0, 0, 0),
-                        (68, -1246, -43),
-                        (1105, -1205, 1229),
-                        (-92, -2380, -20),
-                        (-20, -1133, 1061)
-                    ]
-                    .iter()
-                    .cloned()
-                )
-            }
+            map.beacons,
+            HashSet::from_iter(
+                [
+                    (-892, 524, 684),
+                    (-876, 649, 763),
+                    (-838, 591, 734),
+                    (-789, 900, -551),
+                    (-739, -1745, 668),
+                    (-706, -3180, -659),
+                    (-697, -3072, -689),
+                    (-689, 845, -530),
+                    (-687, -1600, 576),
+                    (-661, -816, -575),
+                    (-654, -3158, -753),
+                    (-635, -1737, 486),
+                    (-631, -672, 1502),
+                    (-624, -1620, 1868),
+                    (-620, -3212, 371),
+                    (-618, -824, -621),
+                    (-612, -1695, 1788),
+                    (-601, -1648, -643),
+                    (-584, 868, -557),
+                    (-537, -823, -458),
+                    (-532, -1715, 1894),
+                    (-518, -1681, -600),
+                    (-499, -1607, -770),
+                    (-485, -357, 347),
+                    (-470, -3283, 303),
+                    (-456, -621, 1527),
+                    (-447, -329, 318),
+                    (-430, -3130, 366),
+                    (-413, -627, 1469),
+                    (-345, -311, 381),
+                    (-36, -1284, 1171),
+                    (-27, -1108, -65),
+                    (7, -33, -71),
+                    (12, -2351, -103),
+                    (26, -1119, 1091),
+                    (346, -2985, 342),
+                    (366, -3059, 397),
+                    (377, -2827, 367),
+                    (390, -675, -793),
+                    (396, -1931, -563),
+                    (404, -588, -901),
+                    (408, -1815, 803),
+                    (423, -701, 434),
+                    (432, -2009, 850),
+                    (443, 580, 662),
+                    (455, 729, 728),
+                    (456, -540, 1869),
+                    (459, -707, 401),
+                    (465, -695, 1988),
+                    (474, 580, 667),
+                    (496, -1584, 1900),
+                    (497, -1838, -617),
+                    (527, -524, 1933),
+                    (528, -643, 409),
+                    (534, -1912, 768),
+                    (544, -627, -890),
+                    (553, 345, -567),
+                    (564, 392, -477),
+                    (568, -2007, -577),
+                    (605, -1665, 1952),
+                    (612, -1593, 1893),
+                    (630, 319, -379),
+                    (686, -3108, -505),
+                    (776, -3184, -501),
+                    (846, -3110, -434),
+                    (1135, -1161, 1235),
+                    (1243, -1093, 1063),
+                    (1660, -552, 429),
+                    (1693, -557, 386),
+                    (1735, -437, 1738),
+                    (1749, -1800, 1813),
+                    (1772, -405, 1572),
+                    (1776, -675, 371),
+                    (1779, -442, 1789),
+                    (1780, -1548, 337),
+                    (1786, -1538, 337),
+                    (1847, -1591, 415),
+                    (1889, -1729, 1762),
+                    (1994, -1805, 1792),
+                ]
+                .iter()
+                .cloned()
+            )
+        );
+        assert_eq!(
+            map.scanners,
+            HashSet::from_iter(
+                [
+                    (0, 0, 0),
+                    (68, -1246, -43),
+                    (1105, -1205, 1229),
+                    (-92, -2380, -20),
+                    (-20, -1133, 1061)
+                ]
+                .iter()
+                .cloned()
+            )
         );
         assert_eq!(map.max_scanner_manhatten_dist(), 3621);
     }

@@ -18,3 +18,14 @@ However,
 I am storing the coordinates in hash sets which (I think) cannot be manipulated
 in place that easily.
 Each coordinate needs to be removed, changed, and reinserted anyways.
+
+## Edit: optimization
+
+I improved the runtime a little bit
+by first checking the square of Euclidian distances.
+These are invariant under the rotations.
+Thus,
+I only if at least 12 distances match,
+the rotations need to be performed.
+This introduces some more overhead to keep track of the distances,
+but it is less than the time won.
