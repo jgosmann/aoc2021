@@ -10,7 +10,6 @@ After that,
 all there is left to do is to try to align each set of beacons with the map.
 
 My solution could probably be optimized.
-It takes a whole minute despite using rust.
 For each rotation or translation,
 I generate a new set of beacons.
 This makes the data structure immutable which eases the implementation a bit,
