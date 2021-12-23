@@ -1,8 +1,4 @@
-use std::{
-    collections::{HashMap, HashSet},
-    fmt::{Display, Write},
-    ops::RangeBounds,
-};
+use std::{collections::HashMap, fmt::Display};
 
 #[derive(Clone, Copy, Debug, Hash, PartialEq, Eq)]
 enum Amphipod {
@@ -54,17 +50,7 @@ enum Location {
 
 impl Location {
     fn is_free(&self) -> bool {
-        if let Location::Free = self {
-            return true;
-        }
-        return false;
-    }
-
-    fn is_occupied(&self) -> bool {
-        if let Location::Occupied(_) = self {
-            return true;
-        }
-        return false;
+        matches!(self, Location::Free)
     }
 }
 
@@ -81,14 +67,14 @@ impl Display for Location {
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 struct State {
     hallway: [Location; 11],
-    rooms: [[Location; 2]; 4],
+    rooms: [Vec<Location>; 4],
 }
 
 impl State {
     fn is_target(&self) -> bool {
-        self.hallway.iter().all(|h| h.is_free())
-            && self.rooms.iter().enumerate().all(|(i, r)| {
-                r.iter().all(|l| match l {
+        self.hallway.iter().all(|location| location.is_free())
+            && self.rooms.iter().enumerate().all(|(i, room)| {
+                room.iter().all(|location| match location {
                     Location::Free => false,
                     Location::Occupied(amphipod) => amphipod.target() == i,
                 })
@@ -99,37 +85,64 @@ impl State {
 impl Display for State {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.write_str("#############\n#")?;
-        for h in self.hallway {
-            h.fmt(f)?;
+        for location in self.hallway {
+            location.fmt(f)?;
         }
-        f.write_fmt(format_args!(
-            "#\n###{}#{}#{}#{}###\n  #{}#{}#{}#{}#\n  #########\n",
-            self.rooms[0][0],
-            self.rooms[1][0],
-            self.rooms[2][0],
-            self.rooms[3][0],
-            self.rooms[0][1],
-            self.rooms[1][1],
-            self.rooms[2][1],
-            self.rooms[3][1],
-        ))
+        f.write_str("#\n")?;
+
+        let room_len = self.rooms.iter().map(|room| room.len()).min().unwrap_or(0);
+        for i in 0..room_len {
+            if i == 0 {
+                f.write_str("##")?;
+            } else {
+                f.write_str("  ")?;
+            }
+            f.write_fmt(format_args!(
+                "#{}#{}#{}#{}#",
+                self.rooms[0][i], self.rooms[1][i], self.rooms[2][i], self.rooms[3][i]
+            ))?;
+            if i == 0 {
+                f.write_str("##")?;
+            }
+            f.write_str("\n")?;
+        }
+        f.write_str("  #########\n")
     }
 }
 
-fn solve(start_state: &State, seen: &mut HashMap<State, Option<usize>>) -> Option<usize> {
-    if let Some(&result) = seen.get(&start_state) {
-        return result;
+struct Solver {
+    memo_table: HashMap<State, Option<usize>>,
+}
+
+impl Solver {
+    fn new() -> Self {
+        Self {
+            memo_table: HashMap::new(),
+        }
     }
 
-    if start_state.is_target() {
-        return Some(0);
-    }
+    fn solve(&mut self, state: &State) -> Option<usize> {
+        if let Some(&result) = self.memo_table.get(state) {
+            return result;
+        }
 
-    let result = NextStateIterator::new(start_state)
-        .filter_map(|(energy, state)| solve(&state, seen).map(|e2| energy + e2))
-        .min();
-    seen.insert(start_state.clone(), result);
-    result
+        if state.is_target() {
+            return Some(0);
+        }
+
+        let result = NextStateIterator::new(state)
+            .filter_map(|(energy, next_state)| {
+                self.solve(&next_state)
+                    .map(|sub_energy| energy + sub_energy)
+            })
+            .min();
+        self.memo_table.insert(state.clone(), result);
+        result
+    }
+}
+
+fn solve(start_state: &State) -> Option<usize> {
+    Solver::new().solve(start_state)
 }
 
 #[derive(Debug)]
@@ -161,43 +174,42 @@ impl<'a> NextStateIterator<'a> {
         room_index: usize,
         move_into_room: bool,
     ) -> bool {
-        let hallway_valid = hallway_location != 2
+        let is_hallway_location_valid = hallway_location != 2
             && hallway_location != 4
             && hallway_location != 6
             && hallway_location != 8;
-        let start_end_valid = if move_into_room {
-            if let Location::Occupied(amphipod) = self.state.hallway[hallway_location] {
+        let are_start_and_end_valid = match (
+            move_into_room,
+            self.state.hallway[hallway_location],
+            self.state.rooms[room_location][room_index],
+        ) {
+            (true, Location::Occupied(amphipod), Location::Free) => {
                 amphipod.target() == room_location
-                    && self.state.rooms[room_location][room_index].is_free()
-                    && ((room_index == 0
-                        && self.state.rooms[room_location][1] == Location::Occupied(amphipod))
-                        || (room_index == 1 && self.state.rooms[room_location][0].is_free()))
-            } else {
-                false
+                    && self.state.rooms[room_location]
+                        .iter()
+                        .skip(room_index + 1)
+                        .all(|&l| l == Location::Occupied(amphipod))
             }
-        } else {
-            if let Location::Occupied(amphipod) = self.state.rooms[room_location][room_index] {
-                self.state.hallway[hallway_location].is_free()
-                    && (self.state.rooms[room_location].iter().any(|l| {
-                        if let Location::Occupied(a) = l {
-                            a.target() != room_location
-                        } else {
-                            false
-                        }
-                    }))
-            } else {
-                false
+            (true, Location::Free, Location::Occupied(_)) => {
+                self.state.rooms[room_location].iter().any(|l| match l {
+                    Location::Occupied(a) => a.target() != room_location,
+                    _ => false,
+                })
             }
+            _ => false,
         };
-        let room_path_free = room_index == 0 || self.state.rooms[room_location][0].is_free();
+        let is_path_within_room_free = self.state.rooms[room_location]
+            .iter()
+            .take(room_index)
+            .all(|l| l.is_free());
         let mut hallway_range = if hallway_location < 2 * room_location + 2 {
             (hallway_location + 1)..(2 * room_location + 2)
         } else {
             (2 * room_location + 2 + 1)..hallway_location
         };
-        hallway_valid
-            && start_end_valid
-            && room_path_free
+        is_hallway_location_valid
+            && are_start_and_end_valid
+            && is_path_within_room_free
             && hallway_range.all(|i| self.state.hallway[i].is_free())
     }
 
@@ -223,7 +235,7 @@ impl<'a> NextStateIterator<'a> {
             if self.room_location >= self.state.rooms.len() {
                 self.room_location = 0;
                 self.room_index += 1;
-                if self.room_index >= 2 {
+                if self.room_index >= self.state.rooms[0].len() {
                     self.room_index = 0;
                     if self.move_into_room {
                         self.is_exhausted = true;
@@ -286,31 +298,61 @@ impl<'a> Iterator for NextStateIterator<'a> {
 
 fn main() {
     println!(
-        "{}",
-        solve(
-            &State {
-                hallway: [Location::Free; 11],
-                rooms: [
-                    [
-                        Location::Occupied(Amphipod::Amber),
-                        Location::Occupied(Amphipod::Desert)
-                    ],
-                    [
-                        Location::Occupied(Amphipod::Copper),
-                        Location::Occupied(Amphipod::Amber)
-                    ],
-                    [
-                        Location::Occupied(Amphipod::Bronze),
-                        Location::Occupied(Amphipod::Desert)
-                    ],
-                    [
-                        Location::Occupied(Amphipod::Copper),
-                        Location::Occupied(Amphipod::Bronze)
-                    ],
-                ]
-            },
-            &mut HashMap::new()
-        )
+        "Part 1: {}",
+        solve(&State {
+            hallway: [Location::Free; 11],
+            rooms: [
+                vec![
+                    Location::Occupied(Amphipod::Amber),
+                    Location::Occupied(Amphipod::Desert)
+                ],
+                vec![
+                    Location::Occupied(Amphipod::Copper),
+                    Location::Occupied(Amphipod::Amber)
+                ],
+                vec![
+                    Location::Occupied(Amphipod::Bronze),
+                    Location::Occupied(Amphipod::Desert)
+                ],
+                vec![
+                    Location::Occupied(Amphipod::Copper),
+                    Location::Occupied(Amphipod::Bronze)
+                ],
+            ]
+        })
+        .unwrap()
+    );
+    println!(
+        "Part 2: {}",
+        solve(&State {
+            hallway: [Location::Free; 11],
+            rooms: [
+                vec![
+                    Location::Occupied(Amphipod::Amber),
+                    Location::Occupied(Amphipod::Desert),
+                    Location::Occupied(Amphipod::Desert),
+                    Location::Occupied(Amphipod::Desert)
+                ],
+                vec![
+                    Location::Occupied(Amphipod::Copper),
+                    Location::Occupied(Amphipod::Copper),
+                    Location::Occupied(Amphipod::Bronze),
+                    Location::Occupied(Amphipod::Amber)
+                ],
+                vec![
+                    Location::Occupied(Amphipod::Bronze),
+                    Location::Occupied(Amphipod::Bronze),
+                    Location::Occupied(Amphipod::Amber),
+                    Location::Occupied(Amphipod::Desert)
+                ],
+                vec![
+                    Location::Occupied(Amphipod::Copper),
+                    Location::Occupied(Amphipod::Amber),
+                    Location::Occupied(Amphipod::Copper),
+                    Location::Occupied(Amphipod::Bronze)
+                ],
+            ]
+        })
         .unwrap()
     );
 }
@@ -319,60 +361,85 @@ fn main() {
 mod tests {
     use super::*;
 
-    static TEST_SCENARIO: State = State {
-        hallway: [Location::Free; 11],
-        rooms: [
-            [
-                Location::Occupied(Amphipod::Bronze),
-                Location::Occupied(Amphipod::Amber),
-            ],
-            [
-                Location::Occupied(Amphipod::Copper),
-                Location::Occupied(Amphipod::Desert),
-            ],
-            [
-                Location::Occupied(Amphipod::Bronze),
-                Location::Occupied(Amphipod::Copper),
-            ],
-            [
-                Location::Occupied(Amphipod::Desert),
-                Location::Occupied(Amphipod::Amber),
-            ],
-        ],
-    };
-
-    static TEST_SCENARIO2: State = State {
-        hallway: [
-            Location::Free,
-            Location::Free,
-            Location::Free,
-            Location::Free,
-            Location::Free,
-            Location::Occupied(Amphipod::Desert),
-            Location::Free,
-            Location::Free,
-            Location::Free,
-            Location::Free,
-            Location::Free,
-        ],
-        rooms: [
-            [Location::Free, Location::Occupied(Amphipod::Amber)],
-            [
-                Location::Occupied(Amphipod::Bronze),
-                Location::Occupied(Amphipod::Bronze),
-            ],
-            [
-                Location::Occupied(Amphipod::Copper),
-                Location::Occupied(Amphipod::Copper),
-            ],
-            [
-                Location::Occupied(Amphipod::Desert),
-                Location::Occupied(Amphipod::Amber),
-            ],
-        ],
-    };
     #[test]
-    fn test() {
-        assert_eq!(solve(&TEST_SCENARIO, &mut HashMap::new()), Some(12521));
+    fn test_part1() {
+        let test_scenario = State {
+            hallway: [Location::Free; 11],
+            rooms: [
+                vec![
+                    Location::Occupied(Amphipod::Bronze),
+                    Location::Occupied(Amphipod::Amber),
+                ],
+                vec![
+                    Location::Occupied(Amphipod::Copper),
+                    Location::Occupied(Amphipod::Desert),
+                ],
+                vec![
+                    Location::Occupied(Amphipod::Bronze),
+                    Location::Occupied(Amphipod::Copper),
+                ],
+                vec![
+                    Location::Occupied(Amphipod::Desert),
+                    Location::Occupied(Amphipod::Amber),
+                ],
+            ],
+        };
+        assert_eq!(
+            test_scenario.to_string(),
+            "\
+#############
+#...........#
+###B#C#B#D###
+  #A#D#C#A#
+  #########
+"
+        );
+        assert_eq!(solve(&test_scenario), Some(12521));
+    }
+
+    #[test]
+    fn test_part2() {
+        let test_scenario = State {
+            hallway: [Location::Free; 11],
+            rooms: [
+                vec![
+                    Location::Occupied(Amphipod::Bronze),
+                    Location::Occupied(Amphipod::Desert),
+                    Location::Occupied(Amphipod::Desert),
+                    Location::Occupied(Amphipod::Amber),
+                ],
+                vec![
+                    Location::Occupied(Amphipod::Copper),
+                    Location::Occupied(Amphipod::Copper),
+                    Location::Occupied(Amphipod::Bronze),
+                    Location::Occupied(Amphipod::Desert),
+                ],
+                vec![
+                    Location::Occupied(Amphipod::Bronze),
+                    Location::Occupied(Amphipod::Bronze),
+                    Location::Occupied(Amphipod::Amber),
+                    Location::Occupied(Amphipod::Copper),
+                ],
+                vec![
+                    Location::Occupied(Amphipod::Desert),
+                    Location::Occupied(Amphipod::Amber),
+                    Location::Occupied(Amphipod::Copper),
+                    Location::Occupied(Amphipod::Amber),
+                ],
+            ],
+        };
+        assert_eq!(
+            test_scenario.to_string(),
+            "\
+#############
+#...........#
+###B#C#B#D###
+  #D#C#B#A#
+  #D#B#A#C#
+  #A#D#C#A#
+  #########
+"
+        );
+        assert_eq!(solve(&test_scenario), Some(44169));
     }
 }
