@@ -51,8 +51,9 @@ impl Display for Node {
             Node::Inp(index) => f.write_fmt(format_args!("Inp[{}]", index)),
             Node::Ref(index) => f.write_fmt(format_args!("Ref[{}]", index)),
             Node::BinaryOp { op, lhs, rhs } => match op {
-                BinaryOp::Add => f.write_fmt(format_args!("({} {} {})", lhs, op, rhs)),
-                BinaryOp::Eql => f.write_fmt(format_args!("({} {} {})", lhs, op, rhs)),
+                BinaryOp::Add | BinaryOp::Eql | BinaryOp::Neq => {
+                    f.write_fmt(format_args!("({} {} {})", lhs, op, rhs))
+                }
                 op => f.write_fmt(format_args!("{} {} {}", lhs, op, rhs)),
             },
         }
@@ -205,6 +206,13 @@ impl<'a> Evaluator<'a> {
                 BinaryOp::Mod => self.eval_node(lhs) % self.eval_node(rhs),
                 BinaryOp::Eql => {
                     if self.eval_node(lhs) == self.eval_node(rhs) {
+                        1
+                    } else {
+                        0
+                    }
+                }
+                BinaryOp::Neq => {
+                    if self.eval_node(lhs) != self.eval_node(rhs) {
                         1
                     } else {
                         0

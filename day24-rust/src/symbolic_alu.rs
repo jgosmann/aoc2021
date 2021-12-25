@@ -13,6 +13,7 @@ pub enum BinaryOp {
     Div,
     Mod,
     Eql,
+    Neq,
 }
 
 impl Display for BinaryOp {
@@ -24,6 +25,7 @@ impl Display for BinaryOp {
             Div => "/",
             Mod => "%",
             Eql => "==",
+            Neq => "!=",
         };
         f.write_str(op)
     }
@@ -171,8 +173,20 @@ impl SymbolicAlu {
                 }
             }
             Op::Eql(lhs, Operand::Const(rhs)) => {
-                *self.index_mut(lhs) = match self.index(lhs).borrow() {
-                    Node::Const(x) => Rc::new(Node::Const(if x == rhs { 1 } else { 0 })),
+                *self.index_mut(lhs) = match (self.index(lhs).borrow(), rhs) {
+                    (
+                        Node::BinaryOp {
+                            op: BinaryOp::Eql,
+                            lhs: inner_lhs,
+                            rhs: inner_rhs,
+                        },
+                        0,
+                    ) => Rc::new(Node::BinaryOp {
+                        op: BinaryOp::Neq,
+                        lhs: Rc::clone(inner_lhs),
+                        rhs: Rc::clone(inner_rhs),
+                    }),
+                    (Node::Const(x), _) => Rc::new(Node::Const(if x == rhs { 1 } else { 0 })),
                     _ => construct_binary_op(BinaryOp::Eql, lhs, &Operand::Const(*rhs)),
                 }
             }
