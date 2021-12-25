@@ -10,8 +10,6 @@ use day24_rust::{
     symbolic_alu::SymbolicAlu,
 };
 
-mod compact_ast {}
-
 fn main() -> Result<(), Box<dyn Error>> {
     let stdin = io::stdin();
 
