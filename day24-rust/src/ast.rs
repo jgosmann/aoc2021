@@ -97,7 +97,7 @@ impl DeduplicatedAst {
             },
         };
 
-        if Rc::strong_count(node) > 1 {
+        if Rc::strong_count(node) > 1 && !matches!(node.deref(), AluNode::Inp(_)) {
             mapping.insert(Rc::as_ptr(node), self.nodes.len());
             self.nodes.push(converted);
             Node::Ref(self.nodes.len() - 1)
