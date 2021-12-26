@@ -137,7 +137,7 @@ impl<'a> Evaluator<'a> {
     pub fn new(ast: &'a DeduplicatedAst) -> Self {
         let num_inputs = ast.num_inputs();
         let mut input_to_node = vec![ast.nodes().len() - 1; num_inputs];
-        for (i, node) in ast.nodes().iter().enumerate() {
+        for (i, node) in ast.nodes().iter().enumerate().rev() {
             for input in node.inputs() {
                 input_to_node[input] = i;
             }
