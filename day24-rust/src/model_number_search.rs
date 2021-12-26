@@ -1,11 +1,11 @@
-use std::collections::HashSet;
+use std::{collections::HashSet, error::Error, fmt::Display};
 
 use crate::ast::{DeduplicatedAst, Evaluator, Node};
 
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
-struct MemoKey {
+struct MemoKey<const N: usize> {
     num_nodes_evaluated: usize,
-    dependencies_of_unevaluated_nodes: Vec<i64>,
+    dependencies_of_unevaluated_nodes: [i64; N],
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -23,14 +23,25 @@ impl SearchMode {
     }
 }
 
-pub struct ModelNumberSearch<'ast> {
-    evaluator: Evaluator<'ast>,
-    node_dependencies: Vec<Vec<usize>>,
-    exhausted_branches: HashSet<MemoKey>,
+#[derive(Debug)]
+pub struct InsufficientMemoKeySize;
+
+impl Display for InsufficientMemoKeySize {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str("insufficient memo key size")
+    }
 }
 
-impl<'ast> ModelNumberSearch<'ast> {
-    pub fn new(ast: &'ast DeduplicatedAst) -> Self {
+impl Error for InsufficientMemoKeySize {}
+
+pub struct ModelNumberSearch<'ast, const N: usize> {
+    evaluator: Evaluator<'ast>,
+    node_dependencies: Vec<Vec<usize>>,
+    exhausted_branches: HashSet<MemoKey<N>>,
+}
+
+impl<'ast, const N: usize> ModelNumberSearch<'ast, N> {
+    pub fn new(ast: &'ast DeduplicatedAst) -> Result<Self, InsufficientMemoKeySize> {
         let node_dependencies: Vec<Vec<usize>> = ast
             .nodes()
             .iter()
@@ -55,22 +66,31 @@ impl<'ast> ModelNumberSearch<'ast> {
                 },
             );
 
-        Self {
+        if node_dependencies.iter().map(Vec::len).any(|l| l > N) {
+            return Err(InsufficientMemoKeySize);
+        }
+
+        Ok(Self {
             evaluator: Evaluator::new(ast),
             node_dependencies,
             exhausted_branches: HashSet::with_capacity(20_000_000),
-        }
+        })
     }
 
-    fn memo_key(&self) -> MemoKey {
+    fn memo_key(&self) -> MemoKey<N> {
         let num_nodes_evaluated = self.evaluator.num_nodes_evaluated();
-        let dependencies_of_unevaluated_nodes = self.node_dependencies[num_nodes_evaluated]
-            .iter()
-            .map(|&index| self.evaluator.cached_values()[index])
-            .collect();
+        let mut dependencies_of_unevaluated_nodes: Vec<i64> = Vec::with_capacity(N);
+        dependencies_of_unevaluated_nodes.extend(
+            self.node_dependencies[num_nodes_evaluated]
+                .iter()
+                .map(|&index| self.evaluator.cached_values()[index]),
+        );
+        dependencies_of_unevaluated_nodes.resize(N, 0);
         MemoKey {
             num_nodes_evaluated,
-            dependencies_of_unevaluated_nodes,
+            dependencies_of_unevaluated_nodes: dependencies_of_unevaluated_nodes
+                .try_into()
+                .unwrap(),
         }
     }
 

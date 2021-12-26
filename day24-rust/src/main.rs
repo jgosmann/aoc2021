@@ -24,7 +24,7 @@ fn main() -> Result<(), Box<dyn Error>> {
     let compact_ast = DeduplicatedAst::from(&z);
     println!("AST: \n{}\n", compact_ast);
 
-    let mut search = ModelNumberSearch::new(&compact_ast);
+    let mut search = ModelNumberSearch::<2>::new(&compact_ast)?;
     println!(
         "Largest accepted model number: {}",
         search
