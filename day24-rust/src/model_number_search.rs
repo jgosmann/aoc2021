@@ -2,16 +2,10 @@ use std::collections::HashSet;
 
 use crate::ast::{DeduplicatedAst, Evaluator, Node};
 
-#[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
-struct Dependency {
-    index: usize,
-    value: i64,
-}
-
 #[derive(Clone, Debug, Hash, PartialEq, Eq)]
 struct MemoKey {
     num_nodes_evaluated: usize,
-    dependencies_of_unevaluated_nodes: Vec<Dependency>,
+    dependencies_of_unevaluated_nodes: Vec<i64>,
 }
 
 #[derive(Copy, Clone, Debug, Hash, PartialEq, Eq)]
@@ -37,7 +31,29 @@ pub struct ModelNumberSearch<'ast> {
 
 impl<'ast> ModelNumberSearch<'ast> {
     pub fn new(ast: &'ast DeduplicatedAst) -> Self {
-        let node_dependencies = ast.nodes().iter().map(Node::dependencies).collect();
+        let node_dependencies: Vec<Vec<usize>> = ast
+            .nodes()
+            .iter()
+            .map(Node::dependencies)
+            .enumerate()
+            .rev()
+            .fold(
+                vec![vec![]; ast.nodes().len()],
+                |mut accum, (i, dependencies)| {
+                    let mut dependency_set: HashSet<usize> = if i + 1 < accum.len() {
+                        accum[i + 1]
+                            .iter()
+                            .copied()
+                            .filter(|&dependency| dependency < i)
+                            .collect()
+                    } else {
+                        HashSet::new()
+                    };
+                    dependency_set.extend(dependencies.iter());
+                    accum[i] = dependency_set.into_iter().collect();
+                    accum
+                },
+            );
 
         Self {
             evaluator: Evaluator::new(ast),
@@ -48,24 +64,13 @@ impl<'ast> ModelNumberSearch<'ast> {
 
     fn memo_key(&self) -> MemoKey {
         let num_nodes_evaluated = self.evaluator.num_nodes_evaluated();
-        let unevaluated_nodes_iter = self.node_dependencies.iter().skip(num_nodes_evaluated);
-        let dependencies: HashSet<Dependency> = unevaluated_nodes_iter
-            .flat_map(|node_deps| {
-                node_deps.iter().filter_map(|&dep_index| {
-                    self.evaluator
-                        .get_cached(dep_index)
-                        .map(|dep_value| Dependency {
-                            index: dep_index,
-                            value: dep_value,
-                        })
-                })
-            })
+        let dependencies_of_unevaluated_nodes = self.node_dependencies[num_nodes_evaluated]
+            .iter()
+            .map(|&index| self.evaluator.get_cached(index).unwrap())
             .collect();
-        let mut dependencies = Vec::from_iter(dependencies.into_iter());
-        dependencies.sort_by_key(|d| d.index);
         MemoKey {
             num_nodes_evaluated,
-            dependencies_of_unevaluated_nodes: dependencies,
+            dependencies_of_unevaluated_nodes,
         }
     }
 
