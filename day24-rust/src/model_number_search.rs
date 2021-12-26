@@ -66,7 +66,7 @@ impl<'ast> ModelNumberSearch<'ast> {
         let num_nodes_evaluated = self.evaluator.num_nodes_evaluated();
         let dependencies_of_unevaluated_nodes = self.node_dependencies[num_nodes_evaluated]
             .iter()
-            .map(|&index| self.evaluator.get_cached(index).unwrap())
+            .map(|&index| self.evaluator.cached_values()[index])
             .collect();
         MemoKey {
             num_nodes_evaluated,

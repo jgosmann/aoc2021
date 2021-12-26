@@ -155,8 +155,8 @@ impl<'a> Evaluator<'a> {
         self.cached_values.len()
     }
 
-    pub fn get_cached(&self, index: usize) -> Option<i64> {
-        self.cached_values.get(index).copied()
+    pub fn cached_values(&self) -> &[i64] {
+        &self.cached_values
     }
 
     pub fn result(&self) -> Option<i64> {
@@ -179,7 +179,7 @@ impl<'a> Evaluator<'a> {
             .copied()
             .unwrap_or(self.ast.nodes().len());
         for i in self.cached_values.len()..eval_to_node {
-            let value = self.eval_node_index(i);
+            let value = self.eval_node(&self.ast.nodes()[i]);
             self.cached_values.push(value);
         }
     }
@@ -198,7 +198,7 @@ impl<'a> Evaluator<'a> {
         match node {
             Node::Const(x) => *x,
             Node::Inp(index) => self.inputs[*index],
-            Node::Ref(index) => self.eval_node_index(*index),
+            Node::Ref(index) => self.cached_values[*index],
             Node::BinaryOp { op, lhs, rhs } => match op {
                 BinaryOp::Add => self.eval_node(lhs) + self.eval_node(rhs),
                 BinaryOp::Mul => self.eval_node(lhs) * self.eval_node(rhs),
@@ -220,13 +220,5 @@ impl<'a> Evaluator<'a> {
                 }
             },
         }
-    }
-
-    fn eval_node_index(&mut self, index: usize) -> i64 {
-        if index < self.cached_values.len() {
-            return self.cached_values[index];
-        }
-
-        self.eval_node(&self.ast.nodes()[index])
     }
 }
