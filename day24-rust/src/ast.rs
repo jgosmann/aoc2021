@@ -81,9 +81,9 @@ impl DeduplicatedAst {
     fn process_alu_node(
         &mut self,
         node: &Rc<AluNode>,
-        mapping: &mut HashMap<Rc<AluNode>, usize>,
+        mapping: &mut HashMap<*const AluNode, usize>,
     ) -> Node {
-        if let Some(index) = mapping.get(node) {
+        if let Some(index) = mapping.get(&Rc::as_ptr(node)) {
             return Node::Ref(*index);
         }
 
@@ -98,7 +98,7 @@ impl DeduplicatedAst {
         };
 
         if Rc::strong_count(node) > 1 {
-            mapping.insert(Rc::clone(node), self.nodes.len());
+            mapping.insert(Rc::as_ptr(node), self.nodes.len());
             self.nodes.push(converted);
             Node::Ref(self.nodes.len() - 1)
         } else {
