@@ -15,10 +15,10 @@ pub enum SearchMode {
 }
 
 impl SearchMode {
-    fn search_range(&self) -> Box<dyn Iterator<Item = i64>> {
+    fn search_range(&self) -> &[i64] {
         match self {
-            SearchMode::Largest => Box::new((1..=9).rev()),
-            SearchMode::Smallest => Box::new(1..=9),
+            SearchMode::Largest => &[9, 8, 7, 6, 5, 4, 3, 2, 1],
+            SearchMode::Smallest => &[1, 2, 3, 4, 5, 6, 7, 8, 9],
         }
     }
 }
@@ -102,7 +102,7 @@ impl<'ast, const N: usize> ModelNumberSearch<'ast, N> {
 
         let mut result = None;
         for input in search_mode.search_range() {
-            self.evaluator.push_input(input);
+            self.evaluator.push_input(*input);
 
             if let Some(eval_result) = self.evaluator.result() {
                 if eval_result == 0 {
