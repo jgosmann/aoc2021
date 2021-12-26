@@ -145,7 +145,7 @@ impl<'a> Evaluator<'a> {
 
         Self {
             ast,
-            inputs: vec![],
+            inputs: Vec::with_capacity(num_inputs),
             input_to_node,
             cached_values: Vec::with_capacity(ast.nodes().len()),
         }
