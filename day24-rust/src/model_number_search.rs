@@ -58,7 +58,7 @@ impl<'ast> ModelNumberSearch<'ast> {
         Self {
             evaluator: Evaluator::new(ast),
             node_dependencies,
-            exhausted_branches: HashSet::new(),
+            exhausted_branches: HashSet::with_capacity(20_000_000),
         }
     }
 
